@@ -3,81 +3,107 @@ import Anthropic from "@anthropic-ai/sdk";
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const MODEL = process.env.MODEL || "claude-haiku-4-5-20251001";
 
 if (!ANTHROPIC_API_KEY || !TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
   console.error(
-    "Missing required environment variables: ANTHROPIC_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID"
+    "Missing required env vars: ANTHROPIC_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID"
   );
   process.exit(1);
 }
 
 const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
 
-const SYSTEM_PROMPT = `Sen bir blockchain geliştirici haber asistanısın. Görevin, güncel blockchain geliştirici haberlerini Türkçe olarak özetlemek.
+interface NewsItem {
+  title: string;
+  summary: string;
+  url: string;
+  topic: string;
+}
+
+const SYSTEM_PROMPT = `Sen bir blockchain geliştirici haber asistanısın.
+
+Görevin: Son 24-48 saatteki önemli blockchain geliştirici haberlerini web'de arayıp bulmak ve JSON formatında döndürmek.
 
 Haber kategorileri (SADECE bunlara odaklan):
-- Yeni EIP'ler (Ethereum Improvement Proposals) ve diğer protokol geliştirme önerileri
+- Yeni EIP'ler ve protokol geliştirme önerileri
 - Protokol güncellemeleri ve hard fork'lar
 - Geliştirici araçları, SDK'lar, framework güncellemeleri
 - AI + kripto / Web3 kesişim noktaları
-- L2 geliştirmeleri (Optimism, Arbitrum, zkSync, Starknet, vb.)
+- L2 geliştirmeleri (Optimism, Arbitrum, zkSync, Starknet vb.)
 - Akıllı kontrat güvenlik açıkları ve audit'ler
 - Yeni standartlar, ERC'ler, protokol entegrasyonları
 
-KESİNLİKLE DIŞLA:
-- Fiyat haberleri, piyasa analizleri
-- Token lansmanları, ICO/IDO duyuruları
-- Yatırım ve spekülatif içerik
+KESİNLİKLE DIŞLA: fiyat haberleri, piyasa analizi, token lansmanı, ICO/IDO, yatırım içeriği.
 
-Çıktı formatı:
-Her haber maddesi tam olarak şu iki satırlık HTML formatında olmalı (aralarında boş satır olmasın):
-<b>Başlık</b> — özet (max 2 cümle).
-CLAUDE_TOPIC:ANA_KONU|KAYNAK_URL
+ÇIKTI: Sadece ve sadece geçerli bir JSON dizisi döndür. Markdown yok, açıklama yok, kod bloğu yok.
 
-Burada:
-- ANA_KONU: haberin ana konusu/protokolü/EIP adı (örn: "EIP-7702", "Arbitrum Orbit", "zkSync Era"). Kısa ve öz olsun, | karakteri içermesin.
-- KAYNAK_URL: haberin tam kaynak URL'si
+Format:
+[
+  {
+    "title": "Türkçe başlık",
+    "summary": "Türkçe özet, maksimum 2 cümle.",
+    "url": "https://gercek-kaynak-url.com/makale",
+    "topic": "Ana konu adı (örn: EIP-7702, zkSync, Solidity 0.8.25)"
+  }
+]
 
 Kurallar:
-- 5-8 haber maddesi listele
-- Her madde için gerçek, doğrulanabilir kaynak URL'si kullan
-- Başlık Türkçe, açıklama Türkçe
-- HTML tag'lerini asla kırma veya iç içe geçirme
-- Her madde çift satır (başlık satırı + CLAUDE_TOPIC satırı), maddeler arasında bir boş satır bırak
-- Liste başına tarih ekle: <b>📅 [TARİH] Blockchain Geliştirici Haberleri</b>
-- Liste sonuna şu notu ekle: <i>🤖 Bu özet Anthropic Claude tarafından web araması kullanılarak oluşturulmuştur.</i>`;
+- 5-8 madde döndür
+- Her madde için gerçek, çalışır kaynak URL'si kullan
+- topic kısa ve öz olsun (genellikle protokol adı veya EIP numarası)`;
 
-const USER_PROMPT = `Bugünün tarihini kullanarak (${new Date().toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric" })}), son 24-48 saatteki en önemli blockchain geliştirici haberlerini web'de ara ve Türkçe özet oluştur.
+const USER_PROMPT = `Bugünün tarihi: ${new Date().toLocaleDateString("tr-TR", {
+  day: "numeric",
+  month: "long",
+  year: "numeric",
+})}
 
-Arama yaparken şu konuları araştır:
-1. "ethereum EIP proposal 2025" veya "ethereum improvement proposal latest"
-2. "blockchain developer tools update 2025"
-3. "L2 layer2 ethereum update rollup 2025"
-4. "AI crypto blockchain developer 2025"
-5. "smart contract security vulnerability 2025"
-6. "web3 protocol update developer 2025"
+Son 24-48 saatteki blockchain geliştirici haberlerini ara. Şu konularda arama yap:
+- ethereum EIP improvement proposal latest 2026
+- L2 layer2 rollup developer update 2026
+- blockchain developer tools SDK update 2026
+- AI crypto web3 developer 2026
+- smart contract security audit vulnerability 2026
 
-Sadece geliştirici odaklı, teknik içerikli haberleri seç. Fiyat ve piyasa haberlerini kesinlikle dahil etme.`;
+Sadece teknik, geliştirici odaklı haberleri seç. JSON dizisini döndür.`;
 
 function buildClaudeUrl(topic: string): string {
   const query = `${topic} hakkında detaylı teknik açıklama`;
   return `https://claude.ai/new?q=${encodeURIComponent(query)}`;
 }
 
-function processNewsLinks(raw: string): string {
-  // Replace each CLAUDE_TOPIC:TOPIC|SOURCE_URL line with the two formatted links
-  return raw.replace(
-    /^CLAUDE_TOPIC:([^|]+)\|(.+)$/gm,
-    (_, topic, sourceUrl) => {
-      const claudeUrl = buildClaudeUrl(topic.trim());
-      return `<a href="${sourceUrl.trim()}">📖 Kaynağı oku</a>  <a href="${claudeUrl}">🤖 Claude'a sor</a>`;
-    }
+function buildTelegramMessage(items: NewsItem[]): string {
+  const date = new Date().toLocaleDateString("tr-TR", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  const lines: string[] = [
+    `<b>📅 ${date} Blockchain Geliştirici Haberleri</b>`,
+    "",
+  ];
+
+  for (const item of items) {
+    lines.push(`<b>${item.title}</b> — ${item.summary}`);
+    lines.push(
+      `<a href="${item.url}">📖 Kaynağı oku</a>  <a href="${buildClaudeUrl(item.topic)}">🤖 Claude'a sor</a>`
+    );
+    lines.push("");
+  }
+
+  lines.push(
+    `<i>🤖 Bu özet Anthropic Claude (${MODEL}) tarafından web araması kullanılarak oluşturulmuştur.</i>`
   );
+
+  return lines.join("\n");
 }
 
 interface TelegramResponse {
   ok: boolean;
   description?: string;
+  result?: { message_id: number; chat: { id: number; type: string; title?: string; username?: string; first_name?: string } };
 }
 
 async function sendTelegramMessage(text: string): Promise<void> {
@@ -100,54 +126,68 @@ async function sendTelegramMessage(text: string): Promise<void> {
     throw new Error(`Telegram API error: ${result.description}`);
   }
 
-  const { chat, message_id } = (result as any).result;
+  const { chat, message_id } = result.result!;
   console.log(
     `Message sent. message_id=${message_id} chat_id=${chat.id} chat_type=${chat.type} title=${chat.title ?? chat.username ?? chat.first_name}`
   );
 }
 
-async function fetchBlockchainNews(): Promise<string> {
-  console.log("Fetching blockchain developer news via Anthropic API...");
+async function fetchBlockchainNews(): Promise<NewsItem[]> {
+  console.log(`Fetching news with model: ${MODEL}`);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const response = await (client.messages.create as any)({
-    model: "claude-haiku-4-5-20251001",
+    model: MODEL,
     max_tokens: 4096,
     system: SYSTEM_PROMPT,
     tools: [{ type: "web_search_20250305", name: "web_search" }],
     messages: [{ role: "user", content: USER_PROMPT }],
   });
 
-  // Extract the final text content from the response
-  let newsText = "";
+  let rawText = "";
   for (const block of response.content) {
     if (block.type === "text") {
-      newsText = block.text;
+      rawText = block.text;
     }
   }
 
-  if (!newsText) {
+  if (!rawText) {
     throw new Error("No text content received from Anthropic API");
   }
 
   console.log("--- RAW MODEL OUTPUT ---");
-  console.log(newsText);
+  console.log(rawText);
   console.log("--- END RAW OUTPUT ---");
 
-  return processNewsLinks(newsText);
+  // Strip markdown code fences if model wrapped the JSON
+  const cleaned = rawText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+
+  let items: NewsItem[];
+  try {
+    items = JSON.parse(cleaned);
+  } catch {
+    throw new Error(`Failed to parse model output as JSON: ${cleaned.slice(0, 200)}`);
+  }
+
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error("Model returned empty or non-array JSON");
+  }
+
+  return items;
 }
 
 async function main(): Promise<void> {
   try {
     console.log(`Starting blockchain news bot at ${new Date().toISOString()}`);
 
-    const newsContent = await fetchBlockchainNews();
-    console.log("News fetched successfully. Sending to Telegram...");
+    const items = await fetchBlockchainNews();
+    console.log(`Fetched ${items.length} news items. Sending to Telegram...`);
 
-    // Telegram has a 4096 character limit per message
-    if (newsContent.length > 4096) {
-      // Split into chunks at newline boundaries
-      const lines = newsContent.split("\n");
+    const message = buildTelegramMessage(items);
+
+    // Telegram 4096 char limit — split at newline boundaries if needed
+    if (message.length > 4096) {
+      const lines = message.split("\n");
       let chunk = "";
       for (const line of lines) {
         if ((chunk + "\n" + line).length > 4096) {
@@ -159,7 +199,7 @@ async function main(): Promise<void> {
       }
       if (chunk.trim()) await sendTelegramMessage(chunk.trim());
     } else {
-      await sendTelegramMessage(newsContent);
+      await sendTelegramMessage(message);
     }
 
     console.log("Done.");
