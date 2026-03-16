@@ -100,7 +100,10 @@ async function sendTelegramMessage(text: string): Promise<void> {
     throw new Error(`Telegram API error: ${result.description}`);
   }
 
-  console.log("Message sent to Telegram successfully.");
+  const { chat, message_id } = (result as any).result;
+  console.log(
+    `Message sent. message_id=${message_id} chat_id=${chat.id} chat_type=${chat.type} title=${chat.title ?? chat.username ?? chat.first_name}`
+  );
 }
 
 async function fetchBlockchainNews(): Promise<string> {
@@ -126,6 +129,10 @@ async function fetchBlockchainNews(): Promise<string> {
   if (!newsText) {
     throw new Error("No text content received from Anthropic API");
   }
+
+  console.log("--- RAW MODEL OUTPUT ---");
+  console.log(newsText);
+  console.log("--- END RAW OUTPUT ---");
 
   return processNewsLinks(newsText);
 }
