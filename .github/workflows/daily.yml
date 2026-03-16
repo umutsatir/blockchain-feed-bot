@@ -48,4 +48,5 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           MODEL: ${{ vars.MODEL || 'claude-haiku-4-5-20251001' }}
+          RUN_EVERY_DAYS: ${{ vars.RUN_EVERY_DAYS || '1' }}
         run: npx ts-node src/index.ts

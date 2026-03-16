@@ -4,6 +4,7 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const MODEL = process.env.MODEL || "claude-haiku-4-5-20251001";
+const RUN_EVERY_DAYS = parseInt(process.env.RUN_EVERY_DAYS || "1", 10);
 
 if (!ANTHROPIC_API_KEY || !TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
   console.error(
@@ -59,13 +60,14 @@ const USER_PROMPT = `Bugünün tarihi: ${new Date().toLocaleDateString("tr-TR", 
   year: "numeric",
 })}
 
-Son 24-48 saatteki blockchain geliştirici haberlerini ara. Şu konularda arama yap:
+Son ${RUN_EVERY_DAYS} günün blockchain geliştirici haberlerini ara. Şu konularda arama yap:
 - ethereum EIP improvement proposal latest 2026
 - L2 layer2 rollup developer update 2026
 - blockchain developer tools SDK update 2026
 - AI crypto web3 developer 2026
 - smart contract security audit vulnerability 2026
 
+${RUN_EVERY_DAYS > 1 ? `${RUN_EVERY_DAYS} günlük periyodu kapsayan en önemli gelişmeleri derle, tekrar eden haberleri birleştir.` : ""}
 Sadece teknik, geliştirici odaklı haberleri seç. JSON dizisini döndür.`;
 
 function buildClaudeUrl(topic: string): string {
