@@ -30,15 +30,20 @@ KESİNLİKLE DIŞLA:
 - Yatırım ve spekülatif içerik
 
 Çıktı formatı:
-Her haber maddesi tam olarak şu HTML formatında olmalı:
-<b>Başlık</b> — özet (max 2 cümle). <a href="KAYNAK_URL">Kaynak Adı</a>
+Her haber maddesi tam olarak şu iki satırlık HTML formatında olmalı (aralarında boş satır olmasın):
+<b>Başlık</b> — özet (max 2 cümle).
+CLAUDE_TOPIC:ANA_KONU|KAYNAK_URL
+
+Burada:
+- ANA_KONU: haberin ana konusu/protokolü/EIP adı (örn: "EIP-7702", "Arbitrum Orbit", "zkSync Era"). Kısa ve öz olsun, | karakteri içermesin.
+- KAYNAK_URL: haberin tam kaynak URL'si
 
 Kurallar:
 - 5-8 haber maddesi listele
 - Her madde için gerçek, doğrulanabilir kaynak URL'si kullan
 - Başlık Türkçe, açıklama Türkçe
 - HTML tag'lerini asla kırma veya iç içe geçirme
-- Her madde ayrı satırda olsun
+- Her madde çift satır (başlık satırı + CLAUDE_TOPIC satırı), maddeler arasında bir boş satır bırak
 - Liste başına tarih ekle: <b>📅 [TARİH] Blockchain Geliştirici Haberleri</b>
 - Liste sonuna şu notu ekle: <i>🤖 Bu özet Anthropic Claude tarafından web araması kullanılarak oluşturulmuştur.</i>`;
 
@@ -53,6 +58,22 @@ Arama yaparken şu konuları araştır:
 6. "web3 protocol update developer 2025"
 
 Sadece geliştirici odaklı, teknik içerikli haberleri seç. Fiyat ve piyasa haberlerini kesinlikle dahil etme.`;
+
+function buildClaudeUrl(topic: string): string {
+  const query = `${topic} hakkında detaylı teknik açıklama`;
+  return `https://claude.ai/new?q=${encodeURIComponent(query)}`;
+}
+
+function processNewsLinks(raw: string): string {
+  // Replace each CLAUDE_TOPIC:TOPIC|SOURCE_URL line with the two formatted links
+  return raw.replace(
+    /^CLAUDE_TOPIC:([^|]+)\|(.+)$/gm,
+    (_, topic, sourceUrl) => {
+      const claudeUrl = buildClaudeUrl(topic.trim());
+      return `<a href="${sourceUrl.trim()}">📖 Kaynağı oku</a>  <a href="${claudeUrl}">🤖 Claude'a sor</a>`;
+    }
+  );
+}
 
 interface TelegramResponse {
   ok: boolean;
@@ -87,7 +108,7 @@ async function fetchBlockchainNews(): Promise<string> {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const response = await (client.messages.create as any)({
-    model: "claude-sonnet-4-6",
+    model: "claude-haiku-4-5-20251001",
     max_tokens: 4096,
     system: SYSTEM_PROMPT,
     tools: [{ type: "web_search_20250305", name: "web_search" }],
@@ -106,7 +127,7 @@ async function fetchBlockchainNews(): Promise<string> {
     throw new Error("No text content received from Anthropic API");
   }
 
-  return newsText;
+  return processNewsLinks(newsText);
 }
 
 async function main(): Promise<void> {
